@@ -1,25 +1,30 @@
-import os
-import pytest
-
-from openai import OpenAI
-from aiobs.llm import LLM
+import math
 from aiobs.evals import SemanticSimilarityEval, EvalInput
 
 
-@pytest.fixture(scope="module")
-def llm():
-    # Requires OPENAI_API_KEY in environment
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    return LLM.from_client(client, model="gpt-4o-mini")
+class FakeLLM:
+    """Fake LLM that returns deterministic embeddings."""
+
+    def embed(self, text: str):
+        # Very simple embedding: count character frequencies
+        vec = [0.0] * 26
+        for c in text.lower():
+            if "a" <= c <= "z":
+                vec[ord(c) - ord("a")] += 1.0
+        return vec
 
 
-@pytest.fixture
-def evaluator():
-    return SemanticSimilarityEval()
+def cosine(v1, v2):
+    dot = sum(a * b for a, b in zip(v1, v2))
+    n1 = math.sqrt(sum(a * a for a in v1))
+    n2 = math.sqrt(sum(b * b for b in v2))
+    return dot / (n1 * n2)
 
 
-def test_semantic_similarity_pass(llm, evaluator):
-    """Similar meaning should pass the threshold."""
+def test_semantic_similarity_pass():
+    evaluator = SemanticSimilarityEval()
+    llm = FakeLLM()
+
     inp = EvalInput(
         user_input="Capital of France?",
         model_output="Paris is the capital city of France.",
@@ -28,12 +33,14 @@ def test_semantic_similarity_pass(llm, evaluator):
 
     result = evaluator.evaluate(inp, llm=llm)
 
-    assert result.passed is True
+    assert result.passed
     assert result.score > evaluator.config.threshold
 
 
-def test_semantic_similarity_fail(llm, evaluator):
-    """Different meaning should fail."""
+def test_semantic_similarity_fail():
+    evaluator = SemanticSimilarityEval()
+    llm = FakeLLM()
+
     inp = EvalInput(
         user_input="Capital of France?",
         model_output="Berlin is the capital of Germany.",
@@ -42,15 +49,17 @@ def test_semantic_similarity_fail(llm, evaluator):
 
     result = evaluator.evaluate(inp, llm=llm)
 
-    assert result.passed is False
+    assert not result.passed
     assert result.score < evaluator.config.threshold
 
 
-def test_semantic_similarity_missing_expected(llm, evaluator):
-    """Should error when expected_output is missing."""
+def test_semantic_similarity_missing_expected():
+    evaluator = SemanticSimilarityEval()
+    llm = FakeLLM()
+
     inp = EvalInput(
         user_input="Capital of France?",
-        model_output="Paris is the capital city of France.",
+        model_output="Paris is the capital city of France."
     )
 
     result = evaluator.evaluate(inp, llm=llm)
